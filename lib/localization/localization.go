@@ -81,7 +81,14 @@ func (ls *LocalizationService) GetLocalizerFromRequest(r *http.Request) *i18n.Lo
 		return i18n.NewLocalizer(bundle, "en")
 	}
 	acceptLanguage := r.Header.Get("Accept-Language")
-	return i18n.NewLocalizer(ls.bundle, acceptLanguage, "en")
+
+	if localizer, ok := getLocalizerFromCache(acceptLanguage); ok {
+		return localizer
+	}
+
+	localizer := i18n.NewLocalizer(ls.bundle, acceptLanguage, "en")
+	setLocalizerInCache(acceptLanguage, localizer)
+	return localizer
 }
 
 // SimpleLocalizer wraps i18n.Localizer with a more convenient API

@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"net/http/httputil"
 	"net/url"
 	"os"
@@ -78,6 +79,7 @@ var (
 	webmasterEmail           = flag.String("webmaster-email", "", "if set, displays webmaster's email on the reject page for appeals")
 	versionFlag              = flag.Bool("version", false, "print Anubis version")
 	xffStripPrivate          = flag.Bool("xff-strip-private", true, "if set, strip private addresses from X-Forwarded-For")
+	pprofBind                = flag.String("pprof-bind", ":6060", "network address to bind pprof to")
 
 	thothInsecure = flag.Bool("thoth-insecure", false, "if set, connect to Thoth over plain HTTP/2, don't enable this unless support told you to")
 	thothURL      = flag.String("thoth-url", "", "if set, URL for Thoth, the IP reputation database for Anubis")
@@ -272,6 +274,11 @@ func main() {
 	if *metricsBind != "" {
 		wg.Add(1)
 		go metricsServer(ctx, wg.Done)
+	}
+
+	if *pprofBind != "" {
+		wg.Add(1)
+		go pprofServer(ctx, wg.Done)
 	}
 
 	var rp http.Handler
@@ -497,6 +504,26 @@ func metricsServer(ctx context.Context, done func()) {
 	}()
 
 	if err := srv.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+}
+
+func pprofServer(ctx context.Context, done func()) {
+	defer done()
+
+	srv := http.Server{Addr: *pprofBind, Handler: http.DefaultServeMux, ErrorLog: internal.GetFilteredHTTPLogger()}
+	slog.Debug("listening for pprof", "url", *pprofBind)
+
+	go func() {
+		<-ctx.Done()
+		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(c); err != nil {
+			log.Printf("cannot shut down pprof: %v", err)
+		}
+	}()
+
+	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
 }
